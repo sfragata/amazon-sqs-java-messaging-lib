@@ -29,13 +29,14 @@ import javax.jms.MessageFormatException;
 import javax.jms.MessageNotReadableException;
 import javax.jms.MessageNotWriteableException;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 import com.amazon.sqs.javamessaging.acknowledge.Acknowledger;
-import com.amazonaws.util.Base64;
+import java.util.Base64;
 
-import com.amazonaws.services.sqs.model.Message;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import software.amazon.awssdk.services.sqs.model.Message;
 
 /**
  * This class borrows from <code>ActiveMQStreamMessage</code>, which is also
@@ -46,7 +47,7 @@ import com.amazonaws.services.sqs.model.Message;
  * @see org.apache.activemq.command.ActiveMQStreamMessage
  */
 public class SQSBytesMessage extends SQSMessage implements BytesMessage {
-    private static final Log LOG = LogFactory.getLog(SQSBytesMessage.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SQSBytesMessage.class);
 
     private byte[] bytes;
 
@@ -63,7 +64,7 @@ public class SQSBytesMessage extends SQSMessage implements BytesMessage {
         super(acknowledger, queueUrl, sqsMessage);
         try {
             /** Bytes is set by the reset() */
-            dataOut.write(Base64.decode(sqsMessage.getBody()));
+            dataOut.write(Base64.getDecoder().decode(sqsMessage.body()));
             /** Makes it read-only */
             reset();
         } catch (IOException e) {

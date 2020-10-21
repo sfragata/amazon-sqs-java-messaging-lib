@@ -24,13 +24,15 @@ import java.io.Serializable;
 import javax.jms.JMSException;
 import javax.jms.ObjectMessage;
 
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 import com.amazon.sqs.javamessaging.acknowledge.Acknowledger;
-import com.amazonaws.util.Base64;
 
-import com.amazonaws.services.sqs.model.Message;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Base64;
+
+import software.amazon.awssdk.services.sqs.model.Message;
 
 /**
  * An ObjectMessage object is used to send a message that contains a Java
@@ -45,7 +47,7 @@ import com.amazonaws.services.sqs.model.Message;
  * can now be both read from and written to.
  */
 public class SQSObjectMessage extends SQSMessage implements ObjectMessage {
-    private static final Log LOG = LogFactory.getLog(SQSObjectMessage.class);
+    private static final Logger LOG = LoggerFactory.getLogger(SQSObjectMessage.class);
 
     /**
      * Serialized message body
@@ -57,7 +59,7 @@ public class SQSObjectMessage extends SQSMessage implements ObjectMessage {
      */
     public SQSObjectMessage(Acknowledger acknowledger, String queueUrl, Message sqsMessage) throws JMSException {
         super(acknowledger, queueUrl, sqsMessage);
-        body = sqsMessage.getBody();
+        body = sqsMessage.body();
     }
     
     /**
@@ -122,7 +124,7 @@ public class SQSObjectMessage extends SQSMessage implements ObjectMessage {
         Serializable deserializedObject;
         ObjectInputStream objectInputStream = null;
         try {
-            byte[] bytes = Base64.decode(serialized);
+            byte[] bytes = Base64.getDecoder().decode(serialized);
             objectInputStream = new ObjectInputStream(new ByteArrayInputStream(bytes));
             deserializedObject = (Serializable) objectInputStream.readObject();
         } catch (IOException e) {
@@ -157,7 +159,7 @@ public class SQSObjectMessage extends SQSMessage implements ObjectMessage {
             objectOutputStream = new ObjectOutputStream(bytesOut);
             objectOutputStream.writeObject(serializable);
             objectOutputStream.flush();
-            serializedString = Base64.encodeAsString(bytesOut.toByteArray());
+            serializedString = Base64.getEncoder().encodeToString(bytesOut.toByteArray());
         } catch (IOException e) {
             LOG.error("IOException: cannot serialize objectMessage", e);
             throw convertExceptionToMessageFormatException(e);

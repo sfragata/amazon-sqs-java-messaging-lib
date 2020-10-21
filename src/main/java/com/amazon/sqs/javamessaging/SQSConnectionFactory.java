@@ -14,22 +14,21 @@
  */
 package com.amazon.sqs.javamessaging;
 
-import javax.jms.ConnectionFactory;
+import java.net.URI;
+
 import javax.jms.JMSException;
 import javax.jms.QueueConnection;
 import javax.jms.QueueConnectionFactory;
 
-import com.amazonaws.ClientConfiguration;
-import com.amazonaws.auth.AWSCredentials;
-import com.amazonaws.auth.AWSCredentialsProvider;
-import com.amazonaws.auth.AWSStaticCredentialsProvider;
-import com.amazonaws.auth.BasicAWSCredentials;
-import com.amazonaws.auth.DefaultAWSCredentialsProviderChain;
-import com.amazonaws.regions.Region;
-import com.amazonaws.regions.Regions;
-import com.amazonaws.services.sqs.AmazonSQS;
-import com.amazonaws.services.sqs.AmazonSQSClient;
-import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
+import software.amazon.awssdk.regions.Region;
+import software.amazon.awssdk.services.sqs.SqsClient;
+import software.amazon.awssdk.services.sqs.SqsClientBuilder;
 
 /**
  * A ConnectionFactory object encapsulates a set of connection configuration
@@ -50,30 +49,35 @@ import com.amazonaws.services.sqs.AmazonSQSClientBuilder;
  * methods.
  */
 
-public class SQSConnectionFactory implements ConnectionFactory, QueueConnectionFactory {
+public class SQSConnectionFactory
+    implements QueueConnectionFactory {
     private final ProviderConfiguration providerConfiguration;
+
     private final AmazonSQSClientSupplier amazonSQSClientSupplier;
-    
+
     /*
-     * At the time when the library will stop supporting Java 7, this can be removed and Supplier<T> from Java 8 can be used directly.
+     * At the time when the library will stop supporting Java 7, this can be removed and Supplier<T> from Java 8 can be
+     * used directly.
      */
     private interface AmazonSQSClientSupplier {
-        AmazonSQS get();
+        SqsClient get();
     }
 
     /*
-     * Creates a SQSConnectionFactory that uses AmazonSQSClientBuilder.standard() for creating AmazonSQS client connections.
-     * Every SQSConnection will have its own copy of AmazonSQS client.
+     * Creates a SQSConnectionFactory that uses AmazonSQSClientBuilder.standard() for creating AmazonSQS client
+     * connections. Every SQSConnection will have its own copy of AmazonSQS client.
      */
     public SQSConnectionFactory(ProviderConfiguration providerConfiguration) {
-        this(providerConfiguration, AmazonSQSClientBuilder.standard());
+
+        this(providerConfiguration, SqsClient.builder());
     }
-    
+
     /*
-     * Creates a SQSConnectionFactory that uses the provided AmazonSQS client connection.
-     * Every SQSConnection will use the same provided AmazonSQS client.
+     * Creates a SQSConnectionFactory that uses the provided AmazonSQS client connection. Every SQSConnection will use
+     * the same provided AmazonSQS client.
      */
-    public SQSConnectionFactory(ProviderConfiguration providerConfiguration, final AmazonSQS client) {
+    public SQSConnectionFactory(ProviderConfiguration providerConfiguration, final SqsClient client) {
+
         if (providerConfiguration == null) {
             throw new IllegalArgumentException("Provider configuration cannot be null");
         }
@@ -83,17 +87,19 @@ public class SQSConnectionFactory implements ConnectionFactory, QueueConnectionF
         this.providerConfiguration = providerConfiguration;
         this.amazonSQSClientSupplier = new AmazonSQSClientSupplier() {
             @Override
-            public AmazonSQS get() {
+            public SqsClient get() {
+
                 return client;
             }
         };
     }
-    
+
     /*
-     * Creates a SQSConnectionFactory that uses the provided AmazonSQSClientBuilder for creating AmazonSQS client connections.
-     * Every SQSConnection will have its own copy of AmazonSQS client created through the provided builder.
+     * Creates a SQSConnectionFactory that uses the provided AmazonSQSClientBuilder for creating AmazonSQS client
+     * connections. Every SQSConnection will have its own copy of AmazonSQS client created through the provided builder.
      */
-    public SQSConnectionFactory(ProviderConfiguration providerConfiguration, final AmazonSQSClientBuilder clientBuilder) {
+    public SQSConnectionFactory(ProviderConfiguration providerConfiguration, final SqsClientBuilder clientBuilder) {
+
         if (providerConfiguration == null) {
             throw new IllegalArgumentException("Provider configuration cannot be null");
         }
@@ -103,36 +109,43 @@ public class SQSConnectionFactory implements ConnectionFactory, QueueConnectionF
         this.providerConfiguration = providerConfiguration;
         this.amazonSQSClientSupplier = new AmazonSQSClientSupplier() {
             @Override
-            public AmazonSQS get() {
+            public SqsClient get() {
+
                 return clientBuilder.build();
             }
         };
     }
-    
+
     private SQSConnectionFactory(final Builder builder) {
+
         this.providerConfiguration = builder.providerConfiguration;
         this.amazonSQSClientSupplier = new AmazonSQSClientSupplier() {
             @Override
-            public AmazonSQS get() {
-                AmazonSQSClient amazonSQSClient = new AmazonSQSClient(builder.awsCredentialsProvider, builder.clientConfiguration);
+            public SqsClient get() {
+
+                SqsClientBuilder sqsClientBuilder =
+                    SqsClient.builder().credentialsProvider(builder.awsCredentialsProvider)
+                        .overrideConfiguration(builder.clientConfiguration);
                 if (builder.region != null) {
-                    amazonSQSClient.setRegion(builder.region);
+                    sqsClientBuilder.region(builder.region);
                 }
                 if (builder.endpoint != null) {
-                    amazonSQSClient.setEndpoint(builder.endpoint);
+                    sqsClientBuilder.endpointOverride(URI.create(builder.endpoint));
                 }
-                if (builder.signerRegionOverride != null) {
-                    amazonSQSClient.setSignerRegionOverride(builder.signerRegionOverride);
-                }
-                return amazonSQSClient;
+                // if (builder.signerRegionOverride != null) {
+                // amazonSQSClient.setSignerRegionOverride(builder.signerRegionOverride);
+                // }
+                return sqsClientBuilder.build();
             }
         };
     }
 
     @Override
-    public SQSConnection createConnection() throws JMSException {
+    public SQSConnection createConnection()
+        throws JMSException {
+
         try {
-            AmazonSQS amazonSQS = amazonSQSClientSupplier.get();
+            SqsClient amazonSQS = this.amazonSQSClientSupplier.get();
             return createConnection(amazonSQS, null);
         } catch (RuntimeException e) {
             throw (JMSException) new JMSException("Error creating SQS client: " + e.getMessage()).initCause(e);
@@ -140,46 +153,68 @@ public class SQSConnectionFactory implements ConnectionFactory, QueueConnectionF
     }
 
     @Override
-    public SQSConnection createConnection(String awsAccessKeyId, String awsSecretKey) throws JMSException {
-        BasicAWSCredentials basicAWSCredentials = new BasicAWSCredentials(awsAccessKeyId, awsSecretKey);
+    public SQSConnection createConnection(
+        String awsAccessKeyId,
+        String awsSecretKey)
+        throws JMSException {
+
+        AwsBasicCredentials basicAWSCredentials = AwsBasicCredentials.create(awsAccessKeyId, awsSecretKey);
         return createConnection(basicAWSCredentials);
     }
 
-    public SQSConnection createConnection(AWSCredentials awsCredentials) throws JMSException {
-        AWSCredentialsProvider awsCredentialsProvider = new AWSStaticCredentialsProvider(awsCredentials);
+    public SQSConnection createConnection(
+        AwsCredentials awsCredentials)
+        throws JMSException {
+
+        AwsCredentialsProvider awsCredentialsProvider = StaticCredentialsProvider.create(awsCredentials);
         return createConnection(awsCredentialsProvider);
     }
-    
-    public SQSConnection createConnection(AWSCredentialsProvider awsCredentialsProvider) throws JMSException {
+
+    public SQSConnection createConnection(
+        AwsCredentialsProvider awsCredentialsProvider)
+        throws JMSException {
+
         try {
-            AmazonSQS amazonSQS = amazonSQSClientSupplier.get();
+            SqsClient amazonSQS = this.amazonSQSClientSupplier.get();
             return createConnection(amazonSQS, awsCredentialsProvider);
-        } catch(Exception e) {
+        } catch (Exception e) {
             throw (JMSException) new JMSException("Error creating SQS client: " + e.getMessage()).initCause(e);
         }
     }
-    
-    private SQSConnection createConnection(AmazonSQS amazonSQS, AWSCredentialsProvider awsCredentialsProvider) throws JMSException {
-        AmazonSQSMessagingClientWrapper amazonSQSClientJMSWrapper = new AmazonSQSMessagingClientWrapper(amazonSQS, awsCredentialsProvider);
-        return new SQSConnection(amazonSQSClientJMSWrapper, providerConfiguration.getNumberOfMessagesToPrefetch());
-    }
-    
-    @Override
-    public QueueConnection createQueueConnection() throws JMSException {
-        return (QueueConnection) createConnection();
+
+    private SQSConnection createConnection(
+        SqsClient amazonSQS,
+        AwsCredentialsProvider awsCredentialsProvider)
+        throws JMSException {
+
+        AmazonSQSMessagingClientWrapper amazonSQSClientJMSWrapper =
+            new AmazonSQSMessagingClientWrapper(amazonSQS, awsCredentialsProvider);
+        return new SQSConnection(amazonSQSClientJMSWrapper, this.providerConfiguration.getNumberOfMessagesToPrefetch());
     }
 
     @Override
-    public QueueConnection createQueueConnection(String userName, String password) throws JMSException {
-        return (QueueConnection) createConnection(userName, password);
+    public QueueConnection createQueueConnection()
+        throws JMSException {
+
+        return createConnection();
     }
-    
+
+    @Override
+    public QueueConnection createQueueConnection(
+        String userName,
+        String password)
+        throws JMSException {
+
+        return createConnection(userName, password);
+    }
+
     /**
      * Deprecated. Use one of the constructors of this class instead and provide either AmazonSQS client or AmazonSQSClientBuilder.
      * @return
      */
     @Deprecated
     public static Builder builder() {
+
         return new Builder();
     }
 
@@ -190,127 +225,169 @@ public class SQSConnectionFactory implements ConnectionFactory, QueueConnectionF
     @Deprecated
     public static class Builder {
         private Region region;
+
         private String endpoint;
+
         private String signerRegionOverride;
-        private ClientConfiguration clientConfiguration;
-        private AWSCredentialsProvider awsCredentialsProvider = new DefaultAWSCredentialsProviderChain();
+
+        private ClientOverrideConfiguration clientConfiguration;
+
+        private AwsCredentialsProvider awsCredentialsProvider = DefaultCredentialsProvider.create();
+
         private ProviderConfiguration providerConfiguration;
-        
+
         public Builder(Region region) {
+
             this();
             this.region = region;
         }
 
-        /** Recommended way to set the AmazonSQSClient is to use region */
+        /** Recommended way to set the AmazonSQSClient is to use region
+         * @param region region */
         public Builder(String region) {
-            this(Region.getRegion(Regions.fromName(region)));
+
+            this(Region.of(region));
         }
 
         public Builder() {
-            providerConfiguration = new ProviderConfiguration();
-            clientConfiguration = new ClientConfiguration();
+
+            this.providerConfiguration = new ProviderConfiguration();
+            this.clientConfiguration = ClientOverrideConfiguration.builder().build();
         }
-        
-        public Builder withRegion(Region region) {
+
+        public Builder withRegion(
+            Region region) {
+
             setRegion(region);
             return this;
         }
-        
-        public Builder withRegionName(String regionName) 
-            throws IllegalArgumentException
-        {
-            setRegion(Region.getRegion( Regions.fromName(regionName) ) );
+
+        public Builder withRegionName(
+            String regionName)
+            throws IllegalArgumentException {
+
+            setRegion(Region.of(regionName));
             return this;
         }
-        
-        public Builder withEndpoint(String endpoint) {
+
+        public Builder withEndpoint(
+            String endpoint) {
+
             setEndpoint(endpoint);
             return this;
         }
-        
+
         /**
          * An internal method used to explicitly override the internal signer region
          * computed by the default implementation. This method is not expected to be
          * normally called except for AWS internal development purposes.
          */
-        public Builder withSignerRegionOverride(String signerRegionOverride) {
+        public Builder withSignerRegionOverride(
+            String signerRegionOverride) {
+
             setSignerRegionOverride(signerRegionOverride);
             return this;
         }
-        
-        public Builder withAWSCredentialsProvider(AWSCredentialsProvider awsCredentialsProvider) {
+
+        public Builder withAWSCredentialsProvider(
+            AwsCredentialsProvider awsCredentialsProvider) {
+
             setAwsCredentialsProvider(awsCredentialsProvider);
             return this;
         }
 
-        public Builder withClientConfiguration(ClientConfiguration clientConfig) {
+        public Builder withClientConfiguration(
+            ClientOverrideConfiguration clientConfig) {
+
             setClientConfiguration(clientConfig);
             return this;
         }
 
-        public Builder withNumberOfMessagesToPrefetch(int numberOfMessagesToPrefetch) {
-            providerConfiguration.setNumberOfMessagesToPrefetch(numberOfMessagesToPrefetch);
+        public Builder withNumberOfMessagesToPrefetch(
+            int numberOfMessagesToPrefetch) {
+
+            this.providerConfiguration.setNumberOfMessagesToPrefetch(numberOfMessagesToPrefetch);
             return this;
         }
 
         public SQSConnectionFactory build() {
+
             return new SQSConnectionFactory(this);
         }
 
         public Region getRegion() {
-            return region;
+
+            return this.region;
         }
 
-        public void setRegion(Region region) {
+        public void setRegion(
+            Region region) {
+
             this.region = region;
             this.endpoint = null;
         }
-        
-        public void setRegionName(String regionName) {
-            setRegion( Region.getRegion( Regions.fromName( regionName ) ) );
+
+        public void setRegionName(
+            String regionName) {
+
+            setRegion(Region.of(regionName));
         }
 
         public String getEndpoint() {
-            return endpoint;
+
+            return this.endpoint;
         }
 
-        public void setEndpoint(String endpoint) {
+        public void setEndpoint(
+            String endpoint) {
+
             this.endpoint = endpoint;
             this.region = null;
         }
 
         public String getSignerRegionOverride() {
-            return signerRegionOverride;
+
+            return this.signerRegionOverride;
         }
 
-        public void setSignerRegionOverride(String signerRegionOverride) {
+        public void setSignerRegionOverride(
+            String signerRegionOverride) {
+
             this.signerRegionOverride = signerRegionOverride;
         }
 
-        public ClientConfiguration getClientConfiguration() {
-            return clientConfiguration;
+        public ClientOverrideConfiguration getClientConfiguration() {
+
+            return this.clientConfiguration;
         }
 
-        public void setClientConfiguration(ClientConfiguration clientConfig) {
-            clientConfiguration = clientConfig;
+        public void setClientConfiguration(
+            ClientOverrideConfiguration clientConfig) {
+
+            this.clientConfiguration = clientConfig;
         }
 
         public int getNumberOfMessagesToPrefetch() {
-            return providerConfiguration.getNumberOfMessagesToPrefetch();
+
+            return this.providerConfiguration.getNumberOfMessagesToPrefetch();
         }
 
-        public void setNumberOfMessagesToPrefetch(int numberOfMessagesToPrefetch) {
-            providerConfiguration.setNumberOfMessagesToPrefetch(numberOfMessagesToPrefetch);
+        public void setNumberOfMessagesToPrefetch(
+            int numberOfMessagesToPrefetch) {
+
+            this.providerConfiguration.setNumberOfMessagesToPrefetch(numberOfMessagesToPrefetch);
         }
 
-        public AWSCredentialsProvider getAwsCredentialsProvider() {
-            return awsCredentialsProvider;
+        public AwsCredentialsProvider getAwsCredentialsProvider() {
+
+            return this.awsCredentialsProvider;
         }
 
         public void setAwsCredentialsProvider(
-                AWSCredentialsProvider awsCredentialsProvider) {
+            AwsCredentialsProvider awsCredentialsProvider) {
+
             this.awsCredentialsProvider = awsCredentialsProvider;
         }
     }
-    
+
 }

@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0"
-         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
   <groupId>com.amazonaws</groupId>
@@ -38,14 +37,14 @@
   </developers>
 
   <properties>
-    <aws-java-sdk.version>1.11.106</aws-java-sdk.version>
+    <aws-java-sdk.version>2.15.7</aws-java-sdk.version>
   </properties>
 
   <dependencies>
     <dependency>
-      <groupId>com.amazonaws</groupId>
-      <artifactId>aws-java-sdk-sqs</artifactId>
-      <version>${aws-java-sdk.version}</version>
+      <groupId>software.amazon.awssdk</groupId>
+      <artifactId>sqs</artifactId>
+      <version>2.15.7</version>
     </dependency>
     <dependency>
       <groupId>org.apache.geronimo.specs</groupId>
@@ -75,8 +74,8 @@
           <artifactId>maven-compiler-plugin</artifactId>
           <version>3.2</version>
           <configuration>
-            <source>1.7</source>
-            <target>1.7</target>
+            <source>8</source>
+            <target>8</target>
             <encoding>UTF-8</encoding>
           </configuration>
         </plugin>
@@ -106,7 +105,7 @@
             <goals>
               <goal>jar</goal>
             </goals>
-            <configuration> 
+            <configuration>
               <!-- 
               TODO-RS: Java 8 is more strict about some javadoc tags.
               We'll need to update quite a few to remove this workaround.  
@@ -122,9 +121,9 @@
         <version>1.6.7</version>
         <extensions>true</extensions>
         <configuration>
-           <serverId>ossrh</serverId>
-           <nexusUrl>https://oss.sonatype.org/</nexusUrl>
-           <autoReleaseAfterClose>true</autoReleaseAfterClose>
+          <serverId>ossrh</serverId>
+          <nexusUrl>https://oss.sonatype.org/</nexusUrl>
+          <autoReleaseAfterClose>true</autoReleaseAfterClose>
         </configuration>
       </plugin>
       <plugin>
@@ -146,7 +145,7 @@
       </plugin>
     </plugins>
   </build>
-  
+
   <distributionManagement>
     <snapshotRepository>
       <id>ossrh</id>

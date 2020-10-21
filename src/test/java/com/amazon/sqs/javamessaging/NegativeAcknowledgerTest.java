@@ -14,23 +14,20 @@
  */
 package com.amazon.sqs.javamessaging;
 
-import com.amazon.sqs.javamessaging.AmazonSQSMessagingClientWrapper;
-import com.amazon.sqs.javamessaging.PrefetchManager;
-import com.amazon.sqs.javamessaging.SQSMessageConsumerPrefetch;
-import com.amazon.sqs.javamessaging.acknowledge.AcknowledgeMode;
-import com.amazon.sqs.javamessaging.acknowledge.NegativeAcknowledger;
-import com.amazon.sqs.javamessaging.message.SQSMessage;
-import com.amazonaws.services.sqs.model.ChangeMessageVisibilityBatchRequest;
-import com.amazonaws.services.sqs.model.ChangeMessageVisibilityBatchRequestEntry;
-
-import javax.jms.JMSException;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+
+import javax.jms.JMSException;
+
+import com.amazon.sqs.javamessaging.acknowledge.NegativeAcknowledger;
+import com.amazon.sqs.javamessaging.message.SQSMessage;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.ArgumentCaptor;
+import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityBatchRequest;
+import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityBatchRequestEntry;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.Matchers.any;
@@ -46,23 +43,27 @@ import static org.mockito.Mockito.when;
 /**
  * Test the NegativeAcknowledger class
  */
-public class NegativeAcknowledgerTest extends AcknowledgerCommon {
+public class NegativeAcknowledgerTest
+    extends AcknowledgerCommon {
 
     private static final String QUEUE_URL = "queueUrl";
 
     private NegativeAcknowledger negativeAcknowledger;
 
     @Before
-    public void setupRanded() throws JMSException {
-        amazonSQSClient = mock(AmazonSQSMessagingClientWrapper.class);
-        negativeAcknowledger = spy(new NegativeAcknowledger(amazonSQSClient));
+    public void setupRanded()
+        throws JMSException {
+
+        this.amazonSQSClient = mock(AmazonSQSMessagingClientWrapper.class);
+        this.negativeAcknowledger = spy(new NegativeAcknowledger(this.amazonSQSClient));
     }
 
     /**
      * Test NegativeAcknowledger bulk action
      */
     @Test
-    public void testNackBulkAction() throws JMSException {
+    public void testNackBulkAction()
+        throws JMSException {
 
         /*
          * Set up the message queue
@@ -77,19 +78,20 @@ public class NegativeAcknowledgerTest extends AcknowledgerCommon {
         /*
          * Nack the messages in bulk actions
          */
-        negativeAcknowledger.bulkAction(messageQueue, QUEUE_URL);
+        this.negativeAcknowledger.bulkAction(messageQueue, QUEUE_URL);
 
         /*
          * Verify results
          */
-        verify(negativeAcknowledger).action(QUEUE_URL, receiptHandles);
+        verify(this.negativeAcknowledger).action(QUEUE_URL, receiptHandles);
     }
 
     /**
      * Test NegativeAcknowledger bulk action with a large batch
      */
     @Test
-    public void testNackBulkActionLargeBatch() throws JMSException {
+    public void testNackBulkActionLargeBatch()
+        throws JMSException {
 
         /*
          * Set up the message queue
@@ -99,40 +101,40 @@ public class NegativeAcknowledgerTest extends AcknowledgerCommon {
         /*
          * Nack the messages in bulk actions
          */
-        negativeAcknowledger.bulkAction(messageQueue, QUEUE_URL);
+        this.negativeAcknowledger.bulkAction(messageQueue, QUEUE_URL);
 
         /*
          * Verify results
          */
-        verify(negativeAcknowledger, times(2)).action(eq(QUEUE_URL), anyList());
+        verify(this.negativeAcknowledger, times(2)).action(eq(QUEUE_URL), anyList());
     }
 
     /**
      * Test NegativeAcknowledger action
      */
     @Test
-    public void testAction() throws JMSException {
-
+    public void testAction()
+        throws JMSException {
 
         List<String> receiptHandles = new ArrayList<String>();
         receiptHandles.add("r0");
         receiptHandles.add("r1");
         receiptHandles.add("r2");
 
-        negativeAcknowledger.action(QUEUE_URL, receiptHandles);
+        this.negativeAcknowledger.action(QUEUE_URL, receiptHandles);
 
         ArgumentCaptor<ChangeMessageVisibilityBatchRequest> argumentCaptor =
-                ArgumentCaptor.forClass(ChangeMessageVisibilityBatchRequest.class);
-        verify(amazonSQSClient).changeMessageVisibilityBatch(argumentCaptor.capture());
+            ArgumentCaptor.forClass(ChangeMessageVisibilityBatchRequest.class);
+        verify(this.amazonSQSClient).changeMessageVisibilityBatch(argumentCaptor.capture());
 
         assertEquals(1, argumentCaptor.getAllValues().size());
 
-        assertEquals(QUEUE_URL, argumentCaptor.getAllValues().get(0).getQueueUrl());
-        List<ChangeMessageVisibilityBatchRequestEntry> captureList =  argumentCaptor.getAllValues().get(0).getEntries();
+        assertEquals(QUEUE_URL, argumentCaptor.getAllValues().get(0).queueUrl());
+        List<ChangeMessageVisibilityBatchRequestEntry> captureList = argumentCaptor.getAllValues().get(0).entries();
         assertEquals(receiptHandles.size(), captureList.size());
 
         for (ChangeMessageVisibilityBatchRequestEntry item : captureList) {
-            receiptHandles.contains(item.getReceiptHandle());
+            receiptHandles.contains(item.receiptHandle());
         }
     }
 
@@ -140,22 +142,25 @@ public class NegativeAcknowledgerTest extends AcknowledgerCommon {
      * Test NegativeAcknowledger action  withe empty receipt handles
      */
     @Test
-    public void testActionEmptyReceiptHandles() throws JMSException {
+    public void testActionEmptyReceiptHandles()
+        throws JMSException {
 
-        negativeAcknowledger.action(QUEUE_URL, null);
+        this.negativeAcknowledger.action(QUEUE_URL, null);
 
-        negativeAcknowledger.action(QUEUE_URL, Collections.EMPTY_LIST);
+        this.negativeAcknowledger.action(QUEUE_URL, Collections.EMPTY_LIST);
 
-        verify(amazonSQSClient, never()).changeMessageVisibilityBatch(any(ChangeMessageVisibilityBatchRequest.class));
+        verify(this.amazonSQSClient, never())
+            .changeMessageVisibilityBatch(any(ChangeMessageVisibilityBatchRequest.class));
     }
 
     /**
      * Utility function
      */
-    private ArrayDeque<SQSMessageConsumerPrefetch.MessageManager> addSQSMessageToQueue(int count) {
+    private ArrayDeque<SQSMessageConsumerPrefetch.MessageManager> addSQSMessageToQueue(
+        int count) {
 
         ArrayDeque<SQSMessageConsumerPrefetch.MessageManager> messageQueue =
-                new ArrayDeque<SQSMessageConsumerPrefetch.MessageManager>();
+            new ArrayDeque<SQSMessageConsumerPrefetch.MessageManager>();
 
         PrefetchManager prefetchManager = mock(PrefetchManager.class);
         for (int i = 0; i < count; ++i) {

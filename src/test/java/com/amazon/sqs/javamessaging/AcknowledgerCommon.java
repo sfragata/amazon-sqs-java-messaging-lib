@@ -14,9 +14,6 @@
  */
 package com.amazon.sqs.javamessaging;
 
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -24,13 +21,11 @@ import java.util.Map;
 
 import javax.jms.JMSException;
 
-import junit.framework.Assert;
-
-import com.amazon.sqs.javamessaging.AmazonSQSMessagingClientWrapper;
 import com.amazon.sqs.javamessaging.acknowledge.Acknowledger;
 import com.amazon.sqs.javamessaging.message.SQSMessage;
 import com.amazon.sqs.javamessaging.message.SQSTextMessage;
-import com.amazonaws.services.sqs.model.Message;
+import org.junit.Assert;
+import software.amazon.awssdk.services.sqs.model.Message;
 
 /**
  * Parent class for the Acknowledger tests
@@ -38,40 +33,45 @@ import com.amazonaws.services.sqs.model.Message;
 public class AcknowledgerCommon {
 
     protected String baseQueueUrl = "queueUrl";
+
     protected Acknowledger acknowledger;
+
     protected AmazonSQSMessagingClientWrapper amazonSQSClient;
+
     protected List<SQSMessage> populatedMessages = new ArrayList<SQSMessage>();
 
     /*
      * Generate and populate the list with sqs message from different queues
      */
-    public void populateMessage(int populateMessageSize) throws JMSException {
-        String queueUrl = baseQueueUrl + 0;
+    public void populateMessage(
+        int populateMessageSize)
+        throws JMSException {
+
+        String queueUrl = this.baseQueueUrl + 0;
         for (int i = 0; i < populateMessageSize; i++) {
             // Change queueUrl depending on how many messages there are.
             if (i == 11) {
-                queueUrl = baseQueueUrl + 1;
+                queueUrl = this.baseQueueUrl + 1;
             } else if (i == 22) {
-                queueUrl = baseQueueUrl + 2;
+                queueUrl = this.baseQueueUrl + 2;
             } else if (i == 33) {
-                queueUrl = baseQueueUrl + 3;
+                queueUrl = this.baseQueueUrl + 3;
             } else if (i == 44) {
-                queueUrl = baseQueueUrl + 4;
+                queueUrl = this.baseQueueUrl + 4;
             }
-            
-            Message sqsMessage = mock(Message.class);
-            when(sqsMessage.getReceiptHandle()).thenReturn("ReceiptHandle" + i);
-            when(sqsMessage.getMessageId()).thenReturn("MessageId" + i);
+
             // Add mock Attributes
             Map<String, String> mockAttributes = new HashMap<String, String>();
             mockAttributes.put(SQSMessagingClientConstants.APPROXIMATE_RECEIVE_COUNT, "2");
-            when(sqsMessage.getAttributes()).thenReturn(mockAttributes);
-            
-            SQSMessage message = (SQSMessage) new SQSTextMessage(acknowledger, queueUrl, sqsMessage);
-            
-            populatedMessages.add(message);
-            acknowledger.notifyMessageReceived(message);
+            Message sqsMessage =
+                Message.builder().receiptHandle("ReceiptHandle" + i).messageId("MessageId" + i)
+                    .attributesWithStrings(mockAttributes).build();
+
+            SQSMessage message = new SQSTextMessage(this.acknowledger, queueUrl, sqsMessage);
+
+            this.populatedMessages.add(message);
+            this.acknowledger.notifyMessageReceived(message);
         }
-        Assert.assertEquals(populateMessageSize, acknowledger.getUnAckMessages().size());
+        Assert.assertEquals(populateMessageSize, this.acknowledger.getUnAckMessages().size());
     }
 }

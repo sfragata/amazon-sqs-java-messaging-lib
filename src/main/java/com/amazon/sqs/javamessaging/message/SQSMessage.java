@@ -33,7 +33,7 @@ import com.amazon.sqs.javamessaging.SQSMessageConsumerPrefetch;
 import com.amazon.sqs.javamessaging.SQSMessagingClientConstants;
 import com.amazon.sqs.javamessaging.SQSQueueDestination;
 import com.amazon.sqs.javamessaging.acknowledge.Acknowledger;
-import com.amazonaws.services.sqs.model.MessageAttributeValue;
+import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 
 import static com.amazon.sqs.javamessaging.SQSMessagingClientConstants.*;
 
@@ -111,12 +111,12 @@ public class SQSMessage implements Message {
      * This is called at the receiver side to create a
      * JMS message from the SQS message received.
      */
-    SQSMessage(Acknowledger acknowledger, String queueUrl, com.amazonaws.services.sqs.model.Message sqsMessage) throws JMSException{
+    SQSMessage(Acknowledger acknowledger, String queueUrl, software.amazon.awssdk.services.sqs.model.Message sqsMessage) throws JMSException{
         this.acknowledger = acknowledger;
         this.queueUrl = queueUrl;
-        receiptHandle = sqsMessage.getReceiptHandle();
-        this.setSQSMessageId(sqsMessage.getMessageId());
-        Map<String,String> systemAttributes = sqsMessage.getAttributes();
+        receiptHandle = sqsMessage.receiptHandle();
+        this.setSQSMessageId(sqsMessage.messageId());
+        Map<String,String> systemAttributes = sqsMessage.attributesAsStrings();
         int receiveCount = Integer.parseInt(systemAttributes.get(APPROXIMATE_RECEIVE_COUNT));
         
         /**
@@ -128,7 +128,7 @@ public class SQSMessage implements Message {
         if (receiveCount > 1) {
             setJMSRedelivered(true);
         }
-        if (sqsMessage.getMessageAttributes() != null) {
+        if (sqsMessage.messageAttributes() != null) {
             addMessageAttributes(sqsMessage);
         }
 
@@ -158,10 +158,10 @@ public class SQSMessage implements Message {
         writePermissionsForProperties = true;
     }
 
-    private void addMessageAttributes(com.amazonaws.services.sqs.model.Message sqsMessage) throws JMSException {
-        for (Entry<String, MessageAttributeValue> entry : sqsMessage.getMessageAttributes().entrySet()) {
+    private void addMessageAttributes(software.amazon.awssdk.services.sqs.model.Message sqsMessage) throws JMSException {
+        for (Entry<String, MessageAttributeValue> entry : sqsMessage.messageAttributes().entrySet()) {
             properties.put(entry.getKey(), new JMSMessagePropertyValue(
-                    entry.getValue().getStringValue(), entry.getValue().getDataType()));
+                    entry.getValue().stringValue(), entry.getValue().dataType()));
         }
     }
 

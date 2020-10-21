@@ -14,24 +14,12 @@
  */
 package com.amazon.sqs.javamessaging.message;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertTrue;
-import static org.junit.Assert.fail;
-import static org.mockito.Matchers.any;
-import static org.mockito.Matchers.anyBoolean;
-import static org.mockito.Matchers.anyInt;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.spy;
-import static org.mockito.Mockito.when;
-
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -42,42 +30,52 @@ import javax.jms.MessageFormatException;
 import javax.jms.MessageNotReadableException;
 import javax.jms.MessageNotWriteableException;
 
-import org.junit.Before;
-import org.junit.Test;
-
 import com.amazon.sqs.javamessaging.SQSMessagingClientConstants;
 import com.amazon.sqs.javamessaging.SQSSession;
-import com.amazon.sqs.javamessaging.message.SQSBytesMessage;
-import com.amazonaws.util.Base64;
+import org.junit.Before;
+import org.junit.Test;
+import software.amazon.awssdk.services.sqs.model.Message;
 
-import com.amazonaws.services.sqs.model.Message;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.anyInt;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.when;
 
 /**
  * Test the SQSBytesMessageTest class
  */
 public class SQSBytesMessageTest {
-    
+
     private SQSSession mockSQSSession;
-    
+
     private final static Map<String, String> MESSAGE_SYSTEM_ATTRIBUTES;
     static {
-        MESSAGE_SYSTEM_ATTRIBUTES = new HashMap<String,String>();
+        MESSAGE_SYSTEM_ATTRIBUTES = new HashMap<String, String>();
         MESSAGE_SYSTEM_ATTRIBUTES.put(SQSMessagingClientConstants.APPROXIMATE_RECEIVE_COUNT, "1");
     }
 
-    @Before 
+    @Before
     public void setUp() {
-        mockSQSSession = mock(SQSSession.class);
+
+        this.mockSQSSession = mock(SQSSession.class);
     }
 
     /**
      * Test message ability to write and read different types
      */
     @Test
-    public void testReadWrite() throws JMSException {
-        when(mockSQSSession.createBytesMessage()).thenReturn(new SQSBytesMessage());
-        SQSBytesMessage msg = (SQSBytesMessage) mockSQSSession.createBytesMessage();
-        
+    public void testReadWrite()
+        throws JMSException {
+
+        when(this.mockSQSSession.createBytesMessage()).thenReturn(new SQSBytesMessage());
+        SQSBytesMessage msg = (SQSBytesMessage) this.mockSQSSession.createBytesMessage();
+
         byte[] byteArray = new byte[] { 1, 0, 'a', 65 };
         byte byteData = 'a';
         short shortVal = 123;
@@ -93,7 +91,7 @@ public class SQSBytesMessageTest {
         msg.writeByte(byteData);
         msg.writeUTF("UTF-String");
         msg.writeObject("test");
-        
+
         msg.reset();
 
         int length = (int) msg.getBodyLength();
@@ -103,10 +101,9 @@ public class SQSBytesMessageTest {
             fail("failed to readByte");
         }
 
-        Message message = new Message();
-        message.setBody(Base64.encodeAsString(body));
-        
-        message.setAttributes(MESSAGE_SYSTEM_ATTRIBUTES);
+        Message message =
+            Message.builder().body(Base64.getEncoder().encodeToString(body))
+                .attributesWithStrings(MESSAGE_SYSTEM_ATTRIBUTES).build();
         SQSBytesMessage receivedByteMsg = new SQSBytesMessage(null, "", message);
         byte[] byteArray1 = new byte[4];
         receivedByteMsg.readBytes(byteArray1);
@@ -203,7 +200,9 @@ public class SQSBytesMessageTest {
      * Test byte message ability to handle io exception from the read operation
      */
     @Test
-    public void testReadIOException() throws JMSException, IOException {
+    public void testReadIOException()
+        throws JMSException,
+        IOException {
 
         /*
          * Set up mocks
@@ -213,15 +212,12 @@ public class SQSBytesMessageTest {
         InputStream is = mock(InputStream.class);
         DataInputStream dis = new DataInputStream(is);
 
-        when(is.read())
-                .thenThrow(ioException);
+        when(is.read()).thenThrow(ioException);
 
-        when(is.read(any(byte[].class), anyInt(), anyInt()))
-                .thenThrow(ioException);
+        when(is.read(any(byte[].class), anyInt(), anyInt())).thenThrow(ioException);
 
         SQSBytesMessage msg = spy(new SQSBytesMessage());
-        doNothing()
-                .when(msg).checkCanRead();
+        doNothing().when(msg).checkCanRead();
 
         msg.setDataIn(dis);
 
@@ -307,7 +303,9 @@ public class SQSBytesMessageTest {
      * Test byte message ability to handle io exception from the write operation
      */
     @Test
-    public void testWriteIOException() throws JMSException, IOException {
+    public void testWriteIOException()
+        throws JMSException,
+        IOException {
 
         /*
          * Set up mocks
@@ -317,19 +315,14 @@ public class SQSBytesMessageTest {
         OutputStream os = mock(OutputStream.class);
         DataOutputStream dos = new DataOutputStream(os);
 
-
-
         SQSBytesMessage msg = spy(new SQSBytesMessage());
-        doNothing()
-                .when(msg).checkCanRead();
+        doNothing().when(msg).checkCanRead();
 
         msg.setDataOut(dos);
 
-        doThrow(ioException)
-                .when(os).write(anyInt());
+        doThrow(ioException).when(os).write(anyInt());
 
-        doThrow(ioException)
-                .when(os).write(any(byte[].class), anyInt(), anyInt());
+        doThrow(ioException).when(os).write(any(byte[].class), anyInt(), anyInt());
         try {
             msg.writeBoolean(true);
             fail();
@@ -338,14 +331,14 @@ public class SQSBytesMessageTest {
         }
 
         try {
-            msg.writeByte((byte)1);
+            msg.writeByte((byte) 1);
             fail();
         } catch (JMSException exception) {
             assertEquals(ioException, exception.getCause());
         }
 
         try {
-            msg.writeShort((short)1);
+            msg.writeShort((short) 1);
             fail();
         } catch (JMSException exception) {
             assertEquals(ioException, exception.getCause());
@@ -398,7 +391,10 @@ public class SQSBytesMessageTest {
      * Test write object function
      */
     @Test
-    public void testWriteObject() throws JMSException, IOException {
+    public void testWriteObject()
+        throws JMSException,
+        IOException {
+
         SQSBytesMessage msg = new SQSBytesMessage();
 
         byte[] byteArray = new byte[] { 1, 0, 'a', 65 };
@@ -425,10 +421,10 @@ public class SQSBytesMessageTest {
             fail("failed to readByte");
         }
 
-        Message message = new Message();
-        message.setBody(Base64.encodeAsString(body));
+        Message message =
+            Message.builder().body(Base64.getEncoder().encodeToString(body))
+                .attributesWithStrings(MESSAGE_SYSTEM_ATTRIBUTES).build();
 
-        message.setAttributes(MESSAGE_SYSTEM_ATTRIBUTES);
         SQSBytesMessage receivedByteMsg = new SQSBytesMessage(null, "", message);
         byte[] byteArray1 = new byte[4];
         receivedByteMsg.readBytes(byteArray1);
@@ -453,7 +449,7 @@ public class SQSBytesMessageTest {
         try {
             msg.writeObject(new HashSet<String>());
             fail();
-        } catch(MessageFormatException exception) {
+        } catch (MessageFormatException exception) {
             // expected
         }
 
@@ -463,7 +459,7 @@ public class SQSBytesMessageTest {
         try {
             msg.writeObject(null);
             fail();
-        } catch(NullPointerException exception) {
+        } catch (NullPointerException exception) {
             // expected
         }
     }
@@ -472,7 +468,9 @@ public class SQSBytesMessageTest {
      * Test clear body
      */
     @Test
-    public void testClearBody() throws JMSException, IOException {
+    public void testClearBody()
+        throws JMSException,
+        IOException {
 
         SQSBytesMessage msg = new SQSBytesMessage();
 
@@ -488,7 +486,7 @@ public class SQSBytesMessageTest {
          */
         try {
             msg.readBytes(readByteArray);
-        } catch(MessageNotReadableException exception) {
+        } catch (MessageNotReadableException exception) {
             assertEquals("Message is not readable", exception.getMessage());
         }
 
@@ -499,7 +497,9 @@ public class SQSBytesMessageTest {
      * Test after reset the message is read only mode
      */
     @Test(expected = MessageNotWriteableException.class)
-    public void testNotWriteable() throws JMSException {
+    public void testNotWriteable()
+        throws JMSException {
+
         SQSBytesMessage msg = new SQSBytesMessage();
 
         byte[] byteArray = new byte[] { 'a', 0, 34, 65 };
@@ -513,13 +513,15 @@ public class SQSBytesMessageTest {
      * Test before reset the message is not readable
      */
     @Test(expected = MessageNotReadableException.class)
-    public void testReadable() throws JMSException {
-        when(mockSQSSession.createBytesMessage()).thenReturn(new SQSBytesMessage());
-        SQSBytesMessage msg = (SQSBytesMessage) mockSQSSession.createBytesMessage(); 
-        
+    public void testReadable()
+        throws JMSException {
+
+        when(this.mockSQSSession.createBytesMessage()).thenReturn(new SQSBytesMessage());
+        SQSBytesMessage msg = (SQSBytesMessage) this.mockSQSSession.createBytesMessage();
+
         byte[] byteArray = new byte[] { 'a', 0, 34, 65 };
         msg.writeBytes(byteArray);
-        
+
         msg.readInt();
     }
 }

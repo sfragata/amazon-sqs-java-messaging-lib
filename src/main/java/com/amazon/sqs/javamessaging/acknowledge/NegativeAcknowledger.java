@@ -24,8 +24,8 @@ import com.amazon.sqs.javamessaging.AmazonSQSMessagingClientWrapper;
 import com.amazon.sqs.javamessaging.SQSMessagingClientConstants;
 import com.amazon.sqs.javamessaging.SQSMessageConsumerPrefetch.MessageManager;
 import com.amazon.sqs.javamessaging.message.SQSMessage;
-import com.amazonaws.services.sqs.model.ChangeMessageVisibilityBatchRequest;
-import com.amazonaws.services.sqs.model.ChangeMessageVisibilityBatchRequestEntry;
+import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityBatchRequestEntry;
+import software.amazon.awssdk.services.sqs.model.ChangeMessageVisibilityBatchRequest;
 
 /**
  * Used to negative acknowledge of group of messages.
@@ -45,17 +45,14 @@ public class NegativeAcknowledger extends BulkSQSOperation {
     public NegativeAcknowledger(AmazonSQSMessagingClientWrapper amazonSQSClient) {
         this.amazonSQSClient = amazonSQSClient;
     }
-    
+
     /**
-     * Bulk action for negative acknowledge on the list of messages of a
-     * specific queue.
+     * Bulk action for negative acknowledge on the list of messages of a specific
+     * queue.
      * 
-     * @param messageQueue
-     *            Container for the list of message managers.
-     * @param queueUrl
-     *            The queueUrl of the messages, which they received from.
-     * @throws JMSException
-     *             If <code>action</code> throws.
+     * @param messageQueue Container for the list of message managers.
+     * @param queueUrl     The queueUrl of the messages, which they received from.
+     * @throws JMSException If <code>action</code> throws.
      */
     public void bulkAction(ArrayDeque<MessageManager> messageQueue, String queueUrl) throws JMSException {
         List<String> receiptHandles = new ArrayList<String>();
@@ -70,20 +67,17 @@ public class NegativeAcknowledger extends BulkSQSOperation {
         }
         action(queueUrl, receiptHandles);
     }
-    
+
     /**
-     * Action call block for negative acknowledge for the list of receipt
-     * handles. This action can be applied on multiple messages for the same
-     * queue.
+     * Action call block for negative acknowledge for the list of receipt handles.
+     * This action can be applied on multiple messages for the same queue.
      * 
-     * @param queueUrl
-     *            The queueUrl of the queue, which the receipt handles belong.
-     * @param receiptHandles
-     *            The list of handles, which is be used to negative acknowledge
-     *            the messages via using
-     *            <code>changeMessageVisibilityBatch</code>.
-     * @throws JMSException
-     *             If <code>changeMessageVisibilityBatch</code> throws.
+     * @param queueUrl       The queueUrl of the queue, which the receipt handles
+     *                       belong.
+     * @param receiptHandles The list of handles, which is be used to negative
+     *                       acknowledge the messages via using
+     *                       <code>changeMessageVisibilityBatch</code>.
+     * @throws JMSException If <code>changeMessageVisibilityBatch</code> throws.
      */
     @Override
     public void action(String queueUrl, List<String> receiptHandles) throws JMSException {
@@ -96,14 +90,16 @@ public class NegativeAcknowledger extends BulkSQSOperation {
                 receiptHandles.size());
         int batchId = 0;
         for (String messageReceiptHandle : receiptHandles) {
-            ChangeMessageVisibilityBatchRequestEntry changeMessageVisibilityBatchRequestEntry = new ChangeMessageVisibilityBatchRequestEntry(
-                    Integer.toString(batchId), messageReceiptHandle).withVisibilityTimeout(NACK_TIMEOUT);
+
+            ChangeMessageVisibilityBatchRequestEntry changeMessageVisibilityBatchRequestEntry = ChangeMessageVisibilityBatchRequestEntry
+                    .builder().id(Integer.toString(batchId)).receiptHandle(messageReceiptHandle)
+                    .visibilityTimeout(NACK_TIMEOUT).build();
             nackEntries.add(changeMessageVisibilityBatchRequestEntry);
             batchId++;
         }
-        amazonSQSClient.changeMessageVisibilityBatch(new ChangeMessageVisibilityBatchRequest(
-                queueUrl, nackEntries));
+
+        amazonSQSClient.changeMessageVisibilityBatch(
+                ChangeMessageVisibilityBatchRequest.builder().queueUrl(queueUrl).entries(nackEntries).build());
     }
 
 }
-

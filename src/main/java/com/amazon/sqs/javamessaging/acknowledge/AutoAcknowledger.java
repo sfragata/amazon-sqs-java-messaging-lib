@@ -22,7 +22,7 @@ import javax.jms.JMSException;
 import com.amazon.sqs.javamessaging.AmazonSQSMessagingClientWrapper;
 import com.amazon.sqs.javamessaging.SQSSession;
 import com.amazon.sqs.javamessaging.message.SQSMessage;
-import com.amazonaws.services.sqs.model.DeleteMessageRequest;
+import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 
 /**
  * Used by session to automatically acknowledge a client's receipt of a message
@@ -39,15 +39,16 @@ public class AutoAcknowledger implements Acknowledger {
         this.amazonSQSClient = amazonSQSClient;
         this.session = session;
     }
-    
+
     /** Acknowledges the consumed message via calling <code>deleteMessage</code> */
     @Override
     public void acknowledge(SQSMessage message) throws JMSException {
         session.checkClosed();
-        amazonSQSClient.deleteMessage(new DeleteMessageRequest(
-                message.getQueueUrl(), message.getReceiptHandle()));
+
+        amazonSQSClient.deleteMessage(DeleteMessageRequest.builder().queueUrl(message.getQueueUrl())
+                .receiptHandle(message.getReceiptHandle()).build());
     }
-    
+
     /**
      * When notify message is received, it will acknowledge the message.
      */
@@ -55,19 +56,19 @@ public class AutoAcknowledger implements Acknowledger {
     public void notifyMessageReceived(SQSMessage message) throws JMSException {
         acknowledge(message);
     }
-    
+
     /**
-     * AutoAcknowledge doesn't need to do anything in this method. Return an
-     * empty list.
+     * AutoAcknowledge doesn't need to do anything in this method. Return an empty
+     * list.
      */
     @Override
     public List<SQSMessageIdentifier> getUnAckMessages() {
-        return Collections.<SQSMessageIdentifier>emptyList(); 
+        return Collections.<SQSMessageIdentifier>emptyList();
     }
-    
+
     /** AutoAcknowledge doesn't need to do anything in this method. */
     @Override
     public void forgetUnAckMessages() {
     }
- 
+
 }

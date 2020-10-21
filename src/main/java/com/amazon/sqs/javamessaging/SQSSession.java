@@ -28,6 +28,7 @@ import java.util.concurrent.TimeUnit;
 
 import javax.jms.BytesMessage;
 import javax.jms.Destination;
+import javax.jms.IllegalStateException;
 import javax.jms.JMSException;
 import javax.jms.MapMessage;
 import javax.jms.Message;
@@ -47,10 +48,6 @@ import javax.jms.TemporaryTopic;
 import javax.jms.TextMessage;
 import javax.jms.Topic;
 import javax.jms.TopicSubscriber;
-import javax.jms.IllegalStateException;
-
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
 
 import com.amazon.sqs.javamessaging.SQSMessageConsumerPrefetch.MessageManager;
 import com.amazon.sqs.javamessaging.acknowledge.AcknowledgeMode;
@@ -61,6 +58,8 @@ import com.amazon.sqs.javamessaging.message.SQSBytesMessage;
 import com.amazon.sqs.javamessaging.message.SQSObjectMessage;
 import com.amazon.sqs.javamessaging.message.SQSTextMessage;
 import com.amazon.sqs.javamessaging.util.SQSMessagingClientThreadFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A session serves several purposes:
@@ -86,22 +85,23 @@ import com.amazon.sqs.javamessaging.util.SQSMessagingClientThreadFactory;
  * <li>Transactions</li>
  * </ul>
  */
-public class SQSSession implements Session, QueueSession {
-    private static final Log LOG = LogFactory.getLog(SQSSession.class);
-    
+public class SQSSession
+    implements Session, QueueSession {
+    private static final Logger LOG = LoggerFactory.getLogger(SQSSession.class);
+
     private static final int SESSION_EXECUTOR_GRACEFUL_SHUTDOWN_TIME = 10;
-    
+
     static final String SESSION_EXECUTOR_NAME = "SessionCallBackScheduler";
 
     /** Used to create session callback scheduler threads */
-    static final SQSMessagingClientThreadFactory SESSION_THREAD_FACTORY = new SQSMessagingClientThreadFactory(
-            SESSION_EXECUTOR_NAME, false, true);
+    static final SQSMessagingClientThreadFactory SESSION_THREAD_FACTORY =
+        new SQSMessagingClientThreadFactory(SESSION_EXECUTOR_NAME, false, true);
 
     static final String CONSUMER_PREFETCH_EXECUTER_NAME = "ConsumerPrefetch";
 
     /** Used to create consumer prefetcher threads */
-    static final SQSMessagingClientThreadFactory CONSUMER_PREFETCH_THREAD_FACTORY = new SQSMessagingClientThreadFactory(
-            CONSUMER_PREFETCH_EXECUTER_NAME, true);
+    static final SQSMessagingClientThreadFactory CONSUMER_PREFETCH_THREAD_FACTORY =
+        new SQSMessagingClientThreadFactory(CONSUMER_PREFETCH_EXECUTER_NAME, true);
 
     /**
      * Non standard acknowledge mode. This is a variation of CLIENT_ACKNOWLEDGE
@@ -120,13 +120,14 @@ public class SQSSession implements Session, QueueSession {
      * False if Session is stopped.
      */
     volatile boolean running = false;
-    
+
     /**
      * True if Session is closed or close is in-progress.
      */
     private volatile boolean closing = false;
 
     private final AmazonSQSMessagingClientWrapper amazonSQSClient;
+
     private final SQSConnection parentSQSConnection;
 
     /**
@@ -138,7 +139,7 @@ public class SQSSession implements Session, QueueSession {
      * Acknowledger of this Session.
      */
     private final Acknowledger acknowledger;
-    
+
     /**
      * Negative acknowledger of this Session
      */
@@ -153,7 +154,7 @@ public class SQSSession implements Session, QueueSession {
      * Set of MessageConsumer under this Session
      */
     private final Set<SQSMessageConsumer> messageConsumers;
-    
+
     /**
      * Thread that is responsible to guarantee serial execution of message
      * delivery on message listeners
@@ -166,7 +167,7 @@ public class SQSSession implements Session, QueueSession {
     private final ExecutorService executor;
 
     private final Object stateLock = new Object();
-    
+
     /**
      * Used to determine if the caller thread is the session callback thread.
      * Guarded by stateLock
@@ -179,41 +180,49 @@ public class SQSSession implements Session, QueueSession {
      */
     private SQSMessageConsumer activeConsumerInCallback = null;
 
-    SQSSession(SQSConnection parentSQSConnection, AcknowledgeMode acknowledgeMode) throws JMSException{
+    SQSSession(SQSConnection parentSQSConnection, AcknowledgeMode acknowledgeMode) throws JMSException {
+
         this(parentSQSConnection, acknowledgeMode,
-                Collections.newSetFromMap(new ConcurrentHashMap<SQSMessageConsumer, Boolean>()),
-                Collections.newSetFromMap(new ConcurrentHashMap<SQSMessageProducer, Boolean>()));
+            Collections.newSetFromMap(new ConcurrentHashMap<SQSMessageConsumer, Boolean>()),
+            Collections.newSetFromMap(new ConcurrentHashMap<SQSMessageProducer, Boolean>()));
     }
 
-    SQSSession(SQSConnection parentSQSConnection, AcknowledgeMode acknowledgeMode,
-               Set<SQSMessageConsumer> messageConsumers,
-               Set<SQSMessageProducer> messageProducers) throws JMSException{
+    SQSSession(
+        SQSConnection parentSQSConnection,
+        AcknowledgeMode acknowledgeMode,
+        Set<SQSMessageConsumer> messageConsumers,
+        Set<SQSMessageProducer> messageProducers)
+        throws JMSException {
+
         this.parentSQSConnection = parentSQSConnection;
         this.amazonSQSClient = parentSQSConnection.getWrappedAmazonSQSClient();
         this.acknowledgeMode = acknowledgeMode;
-        this.acknowledger = this.acknowledgeMode.createAcknowledger(amazonSQSClient, this);
-        this.negativeAcknowledger = new NegativeAcknowledger(amazonSQSClient);
-        this.sqsSessionRunnable = new SQSSessionCallbackScheduler(this, acknowledgeMode, acknowledger, negativeAcknowledger);
+        this.acknowledger = this.acknowledgeMode.createAcknowledger(this.amazonSQSClient, this);
+        this.negativeAcknowledger = new NegativeAcknowledger(this.amazonSQSClient);
+        this.sqsSessionRunnable =
+            new SQSSessionCallbackScheduler(this, acknowledgeMode, this.acknowledger, this.negativeAcknowledger);
         this.executor = Executors.newSingleThreadExecutor(SESSION_THREAD_FACTORY);
         this.messageConsumers = messageConsumers;
         this.messageProducers = messageProducers;
 
-        executor.execute(sqsSessionRunnable);
+        this.executor.execute(this.sqsSessionRunnable);
     }
-    
+
     SQSConnection getParentConnection() {
-        return parentSQSConnection;
+
+        return this.parentSQSConnection;
     }
-    
+
     /**
      * @return True if the current thread is the callback thread
      */
     boolean isActiveCallbackSessionThread() {
-        synchronized (stateLock) {
-            return activeCallbackSessionThread == Thread.currentThread();
+
+        synchronized (this.stateLock) {
+            return this.activeCallbackSessionThread == Thread.currentThread();
         }
     }
-    
+
     /**
      * Creates a <code>QueueReceiver</code> for the specified queue.
      * @param queue
@@ -223,79 +232,95 @@ public class SQSSession implements Session, QueueSession {
      *             If session is closed
      */
     @Override
-    public QueueReceiver createReceiver(Queue queue) throws JMSException {
+    public QueueReceiver createReceiver(
+        Queue queue)
+        throws JMSException {
+
         return (QueueReceiver) createConsumer(queue);
     }
 
     /**
      * Creates a <code>QueueReceiver</code> for the specified queue. Does not
      * support messageSelector. It will drop anything in messageSelector.
-     * 
+     *
      * @param queue
      *            a queue destination
-     * @param messageSelector           
+     * @param messageSelector
      * @return new message receiver
      * @throws JMSException
      *             If session is closed
      */
     @Override
-    public QueueReceiver createReceiver(Queue queue, String messageSelector) throws JMSException {
+    public QueueReceiver createReceiver(
+        Queue queue,
+        String messageSelector)
+        throws JMSException {
+
         return createReceiver(queue);
     }
-    
+
     /**
      * Creates a <code>QueueSender</code> for the specified queue.
-     * 
+     *
      * @param queue
-     *            a queue destination 
+     *            a queue destination
      * @return new message sender
      * @throws JMSException
      *             If session is closed
      */
     @Override
-    public QueueSender createSender(Queue queue) throws JMSException {
+    public QueueSender createSender(
+        Queue queue)
+        throws JMSException {
+
         return (QueueSender) createProducer(queue);
     }
-    
+
     /**
      * Creates a <code>BytesMessage</code>.
-     * 
+     *
      * @return new <code>BytesMessage</code>
      * @throws JMSException
      *             If session is closed or internal error
      */
     @Override
-    public BytesMessage createBytesMessage() throws JMSException {
+    public BytesMessage createBytesMessage()
+        throws JMSException {
+
         checkClosed();
         return new SQSBytesMessage();
     }
-   
+
     /**
      * According to JMS specification, a message can be sent with only headers
      * without any payload, SQS does not support messages with empty payload. so
      * this method is not supported
      */
     @Override
-    public Message createMessage() throws JMSException {
+    public Message createMessage()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
-    
+
     /**
      * Creates a <code>ObjectMessage</code>.
-     * 
+     *
      * @return new <code>ObjectMessage</code>
      * @throws JMSException
      *             If session is closed or internal error
      */
     @Override
-    public ObjectMessage createObjectMessage() throws JMSException {
+    public ObjectMessage createObjectMessage()
+        throws JMSException {
+
         checkClosed();
         return new SQSObjectMessage();
     }
-    
+
     /**
      * Creates an initialized <code>ObjectMessage</code>.
-     * 
+     *
      * @param object
      *            The initialized <code>ObjectMessage</code>
      * @return new <code>ObjectMessage</code>
@@ -303,27 +328,32 @@ public class SQSSession implements Session, QueueSession {
      *             If session is closed or internal error
      */
     @Override
-    public ObjectMessage createObjectMessage(Serializable object) throws JMSException {
+    public ObjectMessage createObjectMessage(
+        Serializable object)
+        throws JMSException {
+
         checkClosed();
         return new SQSObjectMessage(object);
     }
-    
+
     /**
      * Creates a <code>TextMessage</code>.
-     * 
+     *
      * @return new <code>TextMessage</code>
      * @throws JMSException
      *             If session is closed or internal error
      */
     @Override
-    public TextMessage createTextMessage() throws JMSException {
+    public TextMessage createTextMessage()
+        throws JMSException {
+
         checkClosed();
         return new SQSTextMessage();
     }
-    
+
     /**
      * Creates an initialized <code>TextMessage</code>.
-     * 
+     *
      * @param text
      *            The initialized <code>TextMessage</code>
      * @return new <code>TextMessage</code>
@@ -331,7 +361,10 @@ public class SQSSession implements Session, QueueSession {
      *             If session is closed or internal error
      */
     @Override
-    public TextMessage createTextMessage(String text) throws JMSException {
+    public TextMessage createTextMessage(
+        String text)
+        throws JMSException {
+
         checkClosed();
         return new SQSTextMessage(text);
     }
@@ -339,14 +372,16 @@ public class SQSSession implements Session, QueueSession {
     /**
      * Returns the acknowledge mode of the session. The acknowledge mode is set
      * at the time that the session is created.
-     * 
+     *
      * @return acknowledge mode
      */
     @Override
-    public int getAcknowledgeMode() throws JMSException {
-        return acknowledgeMode.getOriginalAcknowledgeMode();
+    public int getAcknowledgeMode()
+        throws JMSException {
+
+        return this.acknowledgeMode.getOriginalAcknowledgeMode();
     }
-    
+
     /**
      * Closes the session.
      * <P>
@@ -366,7 +401,7 @@ public class SQSSession implements Session, QueueSession {
      * <P>
      * Invoking any other session method on a closed session must throw a
      * <code>IllegalStateException</code>.
-     * 
+     *
      * @throws IllegalStateException
      *             If called by a message listener on its own
      *             <code>Session</code>.
@@ -374,88 +409,93 @@ public class SQSSession implements Session, QueueSession {
      *             On internal error.
      */
     @Override
-    public void close() throws JMSException {
+    public void close()
+        throws JMSException {
 
-        if (closed) {
+        if (this.closed) {
             return;
         }
-        
+
         /**
          * A MessageListener must not attempt to close its own Session as
          * this would lead to deadlock
          */
         if (isActiveCallbackSessionThread()) {
             throw new IllegalStateException(
-                    "MessageListener must not attempt to close its own Session to prevent potential deadlock issues");
+                "MessageListener must not attempt to close its own Session to prevent potential deadlock issues");
         }
-        
+
         doClose();
     }
 
-    void doClose() throws JMSException {
+    void doClose()
+        throws JMSException {
+
         boolean shouldClose = false;
-        synchronized (stateLock) {
-            if (!closing) {
+        synchronized (this.stateLock) {
+            if (!this.closing) {
                 shouldClose = true;
-                closing = true;
+                this.closing = true;
             }
-            stateLock.notifyAll();
+            this.stateLock.notifyAll();
         }
-        
-        if (closed) {
+
+        if (this.closed) {
             return;
         }
 
         if (shouldClose) {
             try {
-                parentSQSConnection.removeSession(this);
+                this.parentSQSConnection.removeSession(this);
 
-                for (SQSMessageConsumer messageConsumer : messageConsumers) {
+                for (SQSMessageConsumer messageConsumer : this.messageConsumers) {
                     messageConsumer.close();
                 }
-                
+
                 recover();
-                
+
                 try {
-                    if (executor != null) {
+                    if (this.executor != null) {
                         LOG.info("Shutting down " + SESSION_EXECUTOR_NAME + " executor");
 
                         /** Shut down executor. */
-                        executor.shutdown();
-                        
+                        this.executor.shutdown();
+
                         waitForCallbackComplete();
-                        
-                        sqsSessionRunnable.close();
-                        
-                        for (MessageProducer messageProducer : messageProducers) {
+
+                        this.sqsSessionRunnable.close();
+
+                        for (MessageProducer messageProducer : this.messageProducers) {
                             messageProducer.close();
                         }
 
-                        if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                        if (!this.executor.awaitTermination(10, TimeUnit.SECONDS)) {
 
-                            LOG.warn("Can't terminate executor service " + SESSION_EXECUTOR_NAME + " after " +
-                                     SESSION_EXECUTOR_GRACEFUL_SHUTDOWN_TIME +
-                                     " seconds, some running threads will be shutdown immediately");
-                            executor.shutdownNow();
+                            LOG.warn("Can't terminate executor service "
+                                + SESSION_EXECUTOR_NAME
+                                + " after "
+                                + SESSION_EXECUTOR_GRACEFUL_SHUTDOWN_TIME
+                                + " seconds, some running threads will be shutdown immediately");
+                            this.executor.shutdownNow();
                         }
                     }
                 } catch (InterruptedException e) {
                     LOG.error("Interrupted while closing the session.", e);
                 }
-               
+
             } finally {
-                synchronized (stateLock) {
-                    closed = true;
-                    running = false;
-                    stateLock.notifyAll();
+                synchronized (this.stateLock) {
+                    this.closed = true;
+                    this.running = false;
+                    this.stateLock.notifyAll();
                 }
             }
-        }/** Blocks until closing of the session completes */
+        } /** Blocks until closing of the session completes */
         else {
-            synchronized (stateLock) {
-                while (!closed) {
+            synchronized (this.stateLock) {
+                while (!this.closed) {
                     try {
-                        stateLock.wait();
+                        this.stateLock.wait();
                     } catch (InterruptedException e) {
                         LOG.error("Interrupted while waiting the session to close.", e);
                     }
@@ -464,43 +504,46 @@ public class SQSSession implements Session, QueueSession {
         }
     }
 
-
     /**
      * Negative acknowledges all the messages on the session that is delivered
      * but not acknowledged.
-     * 
+     *
      * @throws JMSException
      *             If session is closed or on internal error.
      */
     @Override
-    public void recover() throws JMSException {
+    public void recover()
+        throws JMSException {
+
         checkClosed();
-        
-        //let's get all unacknowledged message identifiers
-        List<SQSMessageIdentifier> unAckedMessages = acknowledger.getUnAckMessages();
-        acknowledger.forgetUnAckMessages();
-        
-        //let's summarize which queues and which message groups we're nacked
-        //we have to purge all prefetched messages and queued up callback entries for affected queues and groups
-        //if not, we would end up consuming messages out of order
+
+        // let's get all unacknowledged message identifiers
+        List<SQSMessageIdentifier> unAckedMessages = this.acknowledger.getUnAckMessages();
+        this.acknowledger.forgetUnAckMessages();
+
+        // let's summarize which queues and which message groups we're nacked
+        // we have to purge all prefetched messages and queued up callback entries for affected queues and groups
+        // if not, we would end up consuming messages out of order
         Map<String, Set<String>> queueToGroupsMapping = getAffectedGroupsPerQueueUrl(unAckedMessages);
 
         for (SQSMessageConsumer consumer : this.messageConsumers) {
-            SQSQueueDestination sqsQueue = (SQSQueueDestination)consumer.getQueue();
+            SQSQueueDestination sqsQueue = (SQSQueueDestination) consumer.getQueue();
             Set<String> affectedGroups = queueToGroupsMapping.get(sqsQueue.getQueueUrl());
             if (affectedGroups != null) {
                 unAckedMessages.addAll(consumer.purgePrefetchedMessagesWithGroups(affectedGroups));
             }
         }
-        
-        unAckedMessages.addAll(sqsSessionRunnable.purgeScheduledCallbacksForQueuesAndGroups(queueToGroupsMapping));
-        
+
+        unAckedMessages.addAll(this.sqsSessionRunnable.purgeScheduledCallbacksForQueuesAndGroups(queueToGroupsMapping));
+
         if (!unAckedMessages.isEmpty()) {
-            negativeAcknowledger.bulkAction(unAckedMessages, unAckedMessages.size());
+            this.negativeAcknowledger.bulkAction(unAckedMessages, unAckedMessages.size());
         }
     }
 
-    private Map<String, Set<String>> getAffectedGroupsPerQueueUrl(List<SQSMessageIdentifier> messages) {
+    private Map<String, Set<String>> getAffectedGroupsPerQueueUrl(
+        List<SQSMessageIdentifier> messages) {
+
         Map<String, Set<String>> queueToGroupsMapping = new HashMap<String, Set<String>>();
         for (SQSMessageIdentifier message : messages) {
             String groupId = message.getGroupId();
@@ -517,12 +560,13 @@ public class SQSSession implements Session, QueueSession {
 
     @Override
     public void run() {
+
     }
-    
+
     /**
      * Creates a <code>MessageProducer</code> for the specified destination.
      * Only queue destinations are supported at this time.
-     * 
+     *
      * @param destination
      *            a queue destination
      * @return new message producer
@@ -530,24 +574,27 @@ public class SQSSession implements Session, QueueSession {
      *             If session is closed or queue destination is not used
      */
     @Override
-    public MessageProducer createProducer(Destination destination) throws JMSException {
+    public MessageProducer createProducer(
+        Destination destination)
+        throws JMSException {
+
         checkClosed();
         if (destination != null && !(destination instanceof SQSQueueDestination)) {
             throw new JMSException("Actual type of Destination/Queue has to be SQSQueueDestination");
         }
         SQSMessageProducer messageProducer;
-        synchronized (stateLock) {
+        synchronized (this.stateLock) {
             checkClosing();
-            messageProducer = new SQSMessageProducer(amazonSQSClient, this, (SQSQueueDestination) destination);
-            messageProducers.add(messageProducer);
+            messageProducer = new SQSMessageProducer(this.amazonSQSClient, this, (SQSQueueDestination) destination);
+            this.messageProducers.add(messageProducer);
         }
         return messageProducer;
     }
-    
+
     /**
      * Creates a <code>MessageConsumer</code> for the specified destination.
      * Only queue destinations are supported at this time.
-     * 
+     *
      * @param destination
      *            a queue destination
      * @return new message consumer
@@ -555,28 +602,37 @@ public class SQSSession implements Session, QueueSession {
      *             If session is closed or queue destination is not used
      */
     @Override
-    public MessageConsumer createConsumer(Destination destination) throws JMSException {
+    public MessageConsumer createConsumer(
+        Destination destination)
+        throws JMSException {
+
         checkClosed();
         if (!(destination instanceof SQSQueueDestination)) {
             throw new JMSException("Actual type of Destination/Queue has to be SQSQueueDestination");
         }
         SQSMessageConsumer messageConsumer;
-        synchronized (stateLock) {
+        synchronized (this.stateLock) {
             checkClosing();
             messageConsumer = createSQSMessageConsumer((SQSQueueDestination) destination);
-            messageConsumers.add(messageConsumer);
-            if( running ) {
+            this.messageConsumers.add(messageConsumer);
+            if (this.running) {
                 messageConsumer.startPrefetch();
             }
         }
         return messageConsumer;
     }
 
-    SQSMessageConsumer createSQSMessageConsumer(SQSQueueDestination destination) {
+    SQSMessageConsumer createSQSMessageConsumer(
+        SQSQueueDestination destination) {
+
         return new SQSMessageConsumer(
-                parentSQSConnection, this, sqsSessionRunnable, (SQSQueueDestination) destination,
-                acknowledger,  negativeAcknowledger,
-                CONSUMER_PREFETCH_THREAD_FACTORY);
+            this.parentSQSConnection,
+            this,
+            this.sqsSessionRunnable,
+            destination,
+            this.acknowledger,
+            this.negativeAcknowledger,
+            CONSUMER_PREFETCH_THREAD_FACTORY);
     }
 
     /**
@@ -584,28 +640,32 @@ public class SQSSession implements Session, QueueSession {
      * Creates a <code>MessageConsumer</code> for the specified destination.
      * Only queue destinations are supported at this time.
      * It will ignore any argument in messageSelector.
-     * 
+     *
      * @param destination
      *            a queue destination
-     * @param messageSelector           
+     * @param messageSelector
      * @return new message consumer
      * @throws JMSException
      *             If session is closed or queue destination is not used
      */
 
     @Override
-    public MessageConsumer createConsumer(Destination destination, String messageSelector) throws JMSException {
+    public MessageConsumer createConsumer(
+        Destination destination,
+        String messageSelector)
+        throws JMSException {
+
         if (messageSelector != null) {
             throw new JMSException("SQSSession does not support MessageSelector. This should be null.");
         }
         return createConsumer(destination);
     }
-    
+
     /**
      * Creates a <code>MessageConsumer</code> for the specified destination.
      * Only queue destinations are supported at this time. It will ignore any
      * argument in messageSelector and NoLocal.
-     * 
+     *
      * @param destination
      *            a queue destination
      * @param messageSelector
@@ -615,7 +675,12 @@ public class SQSSession implements Session, QueueSession {
      *             If session is closed or queue destination is not used
      */
     @Override
-    public MessageConsumer createConsumer(Destination destination, String messageSelector, boolean NoLocal) throws JMSException {
+    public MessageConsumer createConsumer(
+        Destination destination,
+        String messageSelector,
+        boolean NoLocal)
+        throws JMSException {
+
         if (messageSelector != null) {
             throw new JMSException("SQSSession does not support MessageSelector. This should be null.");
         }
@@ -631,16 +696,19 @@ public class SQSSession implements Session, QueueSession {
      *         If session is closed or invalid queue is provided
      */
     @Override
-    public Queue createQueue(String queueName) throws JMSException {
+    public Queue createQueue(
+        String queueName)
+        throws JMSException {
+
         checkClosed();
-        return new SQSQueueDestination(queueName, amazonSQSClient.getQueueUrl(queueName).getQueueUrl());
+        return new SQSQueueDestination(queueName, this.amazonSQSClient.getQueueUrl(queueName).queueUrl());
     }
-    
+
     /**
      * This does not create SQS Queue. This method is only to create JMS Queue
      * Object. Make sure the queue exists corresponding to the queueName and
      * ownerAccountId.
-     * 
+     *
      * @param queueName
      * @param ownerAccountId
      *            the account id, which originally created the queue on SQS
@@ -648,81 +716,100 @@ public class SQSSession implements Session, QueueSession {
      * @throws JMSException
      *             If session is closed or invalid queue is provided
      */
-    public Queue createQueue(String queueName, String ownerAccountId) throws JMSException {
+    public Queue createQueue(
+        String queueName,
+        String ownerAccountId)
+        throws JMSException {
+
         checkClosed();
         return new SQSQueueDestination(
-                queueName, amazonSQSClient.getQueueUrl(queueName, ownerAccountId).getQueueUrl());
+            queueName,
+            this.amazonSQSClient.getQueueUrl(queueName, ownerAccountId).queueUrl());
     }
 
     /**
      * This is used in MessageConsumer. When MessageConsumer is closed
      * it will remove itself from list of consumers.
      */
-    void removeConsumer(SQSMessageConsumer consumer) {
-        messageConsumers.remove(consumer);
+    void removeConsumer(
+        SQSMessageConsumer consumer) {
+
+        this.messageConsumers.remove(consumer);
     }
 
     /**
      * This is used in MessageProducer. When MessageProducer is closed
      * it will remove itself from list of producers.
      */
-    void removeProducer(SQSMessageProducer producer) {
-        messageProducers.remove(producer);    
+    void removeProducer(
+        SQSMessageProducer producer) {
+
+        this.messageProducers.remove(producer);
     }
-    
-    void startingCallback(SQSMessageConsumer consumer) throws InterruptedException, JMSException {
-        if (closed) {
+
+    void startingCallback(
+        SQSMessageConsumer consumer)
+        throws InterruptedException,
+        JMSException {
+
+        if (this.closed) {
             return;
         }
-        synchronized (stateLock) {
-            if (activeConsumerInCallback != null) {
+        synchronized (this.stateLock) {
+            if (this.activeConsumerInCallback != null) {
                 throw new IllegalStateException("Callback already in progress");
             }
-            assert activeCallbackSessionThread == null;
+            assert this.activeCallbackSessionThread == null;
 
-            while (!running && !closing) {
+            while (!this.running && !this.closing) {
                 try {
-                    stateLock.wait();
+                    this.stateLock.wait();
                 } catch (InterruptedException e) {
                     LOG.warn("Interrupted while waiting on session start. Continue to wait...", e);
                 }
             }
             checkClosing();
-            activeConsumerInCallback = consumer;
-            activeCallbackSessionThread = Thread.currentThread();
+            this.activeConsumerInCallback = consumer;
+            this.activeCallbackSessionThread = Thread.currentThread();
         }
     }
-    
-    void finishedCallback() throws JMSException {
-        synchronized (stateLock) {
-            if (activeConsumerInCallback == null) {
+
+    void finishedCallback()
+        throws JMSException {
+
+        synchronized (this.stateLock) {
+            if (this.activeConsumerInCallback == null) {
                 throw new IllegalStateException("Callback not in progress");
             }
-            activeConsumerInCallback = null;
-            activeCallbackSessionThread = null;
-            stateLock.notifyAll();
+            this.activeConsumerInCallback = null;
+            this.activeCallbackSessionThread = null;
+            this.stateLock.notifyAll();
         }
     }
-    
-    void waitForConsumerCallbackToComplete(SQSMessageConsumer consumer) throws InterruptedException {
-        synchronized (stateLock) {
-            while (activeConsumerInCallback == consumer) {
+
+    void waitForConsumerCallbackToComplete(
+        SQSMessageConsumer consumer)
+        throws InterruptedException {
+
+        synchronized (this.stateLock) {
+            while (this.activeConsumerInCallback == consumer) {
                 try {
-                    stateLock.wait();
+                    this.stateLock.wait();
                 } catch (InterruptedException e) {
                     LOG.warn(
-                            "Interrupted while waiting the active consumer in callback to complete. Continue to wait...",
-                            e);
+                        "Interrupted while waiting the active consumer in callback to complete. Continue to wait...",
+                        e);
                 }
             }
         }
     }
-    
+
     void waitForCallbackComplete() {
-        synchronized (stateLock) {
-            while (activeConsumerInCallback != null) {
+
+        synchronized (this.stateLock) {
+            while (this.activeConsumerInCallback != null) {
                 try {
-                    stateLock.wait();
+                    this.stateLock.wait();
                 } catch (InterruptedException e) {
                     LOG.warn("Interrupted while waiting on session callback completion. Continue to wait...", e);
                 }
@@ -732,153 +819,207 @@ public class SQSSession implements Session, QueueSession {
 
     /** SQS does not support transacted. Transacted will always be false. */
     @Override
-    public boolean getTransacted() throws JMSException {
+    public boolean getTransacted()
+        throws JMSException {
+
         return false;
     }
 
     /** This method is not supported. This method is related to transaction which SQS doesn't support */
     @Override
-    public void commit() throws JMSException {
+    public void commit()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. This method is related to transaction which SQS doesn't support */
     @Override
-    public void rollback() throws JMSException {
+    public void rollback()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. This method is related to Topic which SQS doesn't support */
     @Override
-    public void unsubscribe(String name) throws JMSException {
+    public void unsubscribe(
+        String name)
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public Topic createTopic(String topicName) throws JMSException {
+    public Topic createTopic(
+        String topicName)
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public TopicSubscriber createDurableSubscriber(Topic topic, String name) throws JMSException {
+    public TopicSubscriber createDurableSubscriber(
+        Topic topic,
+        String name)
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public TopicSubscriber createDurableSubscriber(Topic topic, String name, String messageSelector, boolean noLocal) throws JMSException {
+    public TopicSubscriber createDurableSubscriber(
+        Topic topic,
+        String name,
+        String messageSelector,
+        boolean noLocal)
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public QueueBrowser createBrowser(Queue queue) throws JMSException {
+    public QueueBrowser createBrowser(
+        Queue queue)
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public QueueBrowser createBrowser(Queue queue, String messageSelector) throws JMSException {
+    public QueueBrowser createBrowser(
+        Queue queue,
+        String messageSelector)
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public TemporaryQueue createTemporaryQueue() throws JMSException {
+    public TemporaryQueue createTemporaryQueue()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public TemporaryTopic createTemporaryTopic() throws JMSException {
+    public TemporaryTopic createTemporaryTopic()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public MessageListener getMessageListener() throws JMSException {
+    public MessageListener getMessageListener()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public void setMessageListener(MessageListener listener) throws JMSException {
+    public void setMessageListener(
+        MessageListener listener)
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public StreamMessage createStreamMessage() throws JMSException {
+    public StreamMessage createStreamMessage()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     /** This method is not supported. */
     @Override
-    public MapMessage createMapMessage() throws JMSException {
+    public MapMessage createMapMessage()
+        throws JMSException {
+
         throw new JMSException(SQSMessagingClientConstants.UNSUPPORTED_METHOD);
     }
 
     static class CallbackEntry {
         private final MessageListener messageListener;
+
         private final MessageManager messageManager;
-        
+
         CallbackEntry(MessageListener messageListener, MessageManager messageManager) {
+
             this.messageListener = messageListener;
             this.messageManager = messageManager;
         }
-        
+
         public MessageListener getMessageListener() {
-            return messageListener;
+
+            return this.messageListener;
         }
-        
+
         public MessageManager getMessageManager() {
-            return messageManager;
+
+            return this.messageManager;
         }
     }
-    
+
     /**
      * Check if session is closed.
      */
-    public void checkClosed() throws IllegalStateException {
-        if (closed) {
+    public void checkClosed()
+        throws IllegalStateException {
+
+        if (this.closed) {
             throw new IllegalStateException("Session is closed");
         }
     }
-    
+
     /**
      * Check if session is closed or closing.
      */
-    public void checkClosing() throws IllegalStateException {
-        if (closing) {
+    public void checkClosing()
+        throws IllegalStateException {
+
+        if (this.closing) {
             throw new IllegalStateException("Session is closed or closing");
         }
     }
-        
-    void start() throws IllegalStateException {
+
+    void start()
+        throws IllegalStateException {
+
         checkClosed();
-        synchronized (stateLock) {
+        synchronized (this.stateLock) {
             checkClosing();
-            running = true;            
-            for (SQSMessageConsumer messageConsumer : messageConsumers) {
+            this.running = true;
+            for (SQSMessageConsumer messageConsumer : this.messageConsumers) {
                 messageConsumer.startPrefetch();
             }
-            stateLock.notifyAll();
+            this.stateLock.notifyAll();
         }
     }
-    
-    void stop() throws IllegalStateException {
+
+    void stop()
+        throws IllegalStateException {
+
         checkClosed();
-        synchronized (stateLock) {
+        synchronized (this.stateLock) {
             checkClosing();
-            running = false;
-            for (SQSMessageConsumer messageConsumer : messageConsumers) {
+            this.running = false;
+            for (SQSMessageConsumer messageConsumer : this.messageConsumers) {
                 messageConsumer.stopPrefetch();
             }
             waitForCallbackComplete();
 
-            stateLock.notifyAll();
+            this.stateLock.notifyAll();
         }
     }
 
@@ -887,42 +1028,56 @@ public class SQSSession implements Session, QueueSession {
      */
 
     boolean isCallbackActive() {
-        return activeConsumerInCallback != null;
+
+        return this.activeConsumerInCallback != null;
     }
-    
-    void setActiveConsumerInCallback(SQSMessageConsumer consumer) {
-        activeConsumerInCallback = consumer;
+
+    void setActiveConsumerInCallback(
+        SQSMessageConsumer consumer) {
+
+        this.activeConsumerInCallback = consumer;
     }
-    
+
     Object getStateLock() {
-        return stateLock;
+
+        return this.stateLock;
     }
 
     boolean isClosed() {
-        return closed;
-    }
-    
-    boolean isClosing() {
-        return closing;
+
+        return this.closed;
     }
 
-    void setClosed(boolean closed) {
+    boolean isClosing() {
+
+        return this.closing;
+    }
+
+    void setClosed(
+        boolean closed) {
+
         this.closed = closed;
     }
 
-    void setClosing(boolean closing) {
+    void setClosing(
+        boolean closing) {
+
         this.closing = closing;
     }
 
-    void setRunning(boolean running) {
+    void setRunning(
+        boolean running) {
+
         this.running = running;
     }
 
     boolean isRunning() {
-        return running;
+
+        return this.running;
     }
 
     SQSSessionCallbackScheduler getSqsSessionRunnable() {
-        return sqsSessionRunnable;
+
+        return this.sqsSessionRunnable;
     }
 }
